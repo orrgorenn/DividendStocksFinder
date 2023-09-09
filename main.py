@@ -1,6 +1,8 @@
 import math
 from io import StringIO
+from typing import Dict
 from typing import Optional
+import csv
 
 import pandas as pd
 import datetime
@@ -9,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # Set you min and max values for the filters
+MIN_YEAR_TO_COUNT_FROM = 2000
 MIN_DIV_YIELD = 1.53
 MIN_DGR_1Y = 5
 MIN_DGR_3Y = 5
@@ -23,7 +26,7 @@ MIN_MARKET_CAP = 1  # billion
 MAX_MONEY_TO_INVEST = 1000  # dollars
 
 file_path = "stocks.xlsx"
-df = pd.read_excel(file_path, sheet_name="Champions", header=2)
+df = pd.read_excel(file_path, sheet_name="All", header=2)
 
 # Get the current year
 current_year = datetime.datetime.now().year
@@ -42,16 +45,21 @@ def fetch_and_extract_table(symbol: str) -> Optional[str]:
         return None
 
 
+def print_nice(row: Dict) -> str:
+    res = f"{row.get('Company')} (${row.get('Symbol')}) | {row.get('Sector')}"
+    return res
+
+
 # Filter the DataFrame based on your criteria
 filtered_df = df[
-    (df["No Years"] > (current_year - 2000))
-    & (df["Div Yield"] > MIN_DIV_YIELD)
-    & (df["DGR 1Y"] > MIN_DGR_1Y)
-    & (df["DGR 3Y"] > MIN_DGR_3Y)
-    & (df["DGR 5Y"] > MIN_DGR_5Y)
-    & (df["DGR 10Y"] > MIN_DGR_10Y)
-    & (df["Debt/Capital"] < MAX_DEBT_CAPITAL)
-    & (df["P/E"] < MAX_PE)
+    (df["No Years"] >= (current_year - MIN_YEAR_TO_COUNT_FROM))
+    & (df["Div Yield"] >= MIN_DIV_YIELD)
+    & (df["DGR 1Y"] >= MIN_DGR_1Y)
+    & (df["DGR 3Y"] >= MIN_DGR_3Y)
+    & (df["DGR 5Y"] >= MIN_DGR_5Y)
+    & (df["DGR 10Y"] >= MIN_DGR_10Y)
+    & (df["Debt/Capital"] <= MAX_DEBT_CAPITAL)
+    & (df["P/E"] <= MAX_PE)
 ]
 
 # Sort the filtered DataFrame by column E in descending order
@@ -77,17 +85,27 @@ for row in filtered_data:
             next_5_years = float(df_table[5][5].rstrip("%"))
             market_cap = float(df_table[1][1].rstrip("B"))
             if (
-                payout < MAX_PAYOUT_RATIO
-                and past_5_years > MIN_PAST_5_YEARS
-                and next_5_years > MIN_NEXT_5_YEARS
-                and market_cap > MIN_MARKET_CAP
+                payout <= MAX_PAYOUT_RATIO
+                and past_5_years >= MIN_PAST_5_YEARS
+                and next_5_years >= MIN_NEXT_5_YEARS
+                and market_cap >= MIN_MARKET_CAP
             ):
                 end_rows.append(row)
         except ValueError:
             continue
 
-for row in end_rows:
+for i, row in enumerate(end_rows, 1):
     shares_to_buy = math.floor(MAX_MONEY_TO_INVEST / row.get("Price"))
     print(
-        f"{row.get('Symbol')}: {row.get('Company')} - Buy {shares_to_buy} shares for a total of ${round(shares_to_buy* row.get('Price'), 2)} (${row.get('Price')} per share)"
+        f"{i}. {print_nice(row)}\nYou can buy {shares_to_buy} shares for a total of ${round(shares_to_buy* row.get('Price'), 2)} (${row.get('Price')} per share)\r\n"
     )
+
+field_names = list(end_rows[0].keys())
+# Write the results to a CSV file
+with open("results.csv", "w", newline="") as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=field_names)
+    writer.writeheader()
+    for row in end_rows:
+        writer.writerow(row)
+
+print("Full details are in the results.csv that was created (same directory with this project).")
